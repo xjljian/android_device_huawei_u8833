@@ -1,5 +1,5 @@
 #!/system/bin/sh
-# Copyright (c) 2012 Code Aurora Forum. All rights reserved.
+# Copyright (c) 2009-2011, Code Aurora Forum. All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions are met:
@@ -26,34 +26,81 @@
 # ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #
 
+setprop hw.fm.init 0
+
+mode=`getprop hw.fm.mode`
+version=`getprop hw.fm.version`
+isAnalog=`getprop hw.fm.isAnalog`
+
+#find the transport type
+TRANSPORT=`getprop ro.qualcomm.bt.hci_transport`
+
+LOG_TAG="qcom-fm"
+LOG_NAME="${0}:"
+
+loge ()
+{
+  /system/bin/log -t $LOG_TAG -p e "$LOG_NAME $@"
+}
+
+logi ()
+{
+  /system/bin/log -t $LOG_TAG -p i "$LOG_NAME $@"
+}
+
+failed ()
+{
+  loge "$1: exit code $2"
+  exit $2
+}
+
+logi "In FM shell Script"
+logi "mode: $mode"
+logi "isAnalog: $isAnalog"
+logi "Transport : $TRANSPORT"
+logi "Version : $version"
+
+#$fm_qsoc_patches <fm_chipVersion> <enable/disable WCM>
 #
-# set rild-libpath using modem build_id
-#
-PATH=/sbin:/system/sbin:/system/bin:/system/xbin
-export PATH
-buildid=`cat /sys/devices/system/soc/soc0/build_id`
-offset_1=0
-offset_2=5
-offset_3=4
-length=1
-is_strider=8
-is_qmi_enabled=1
-is_unicorn=7
-is_unicorn_strider='S'
-dsds=`getprop persist.multisim.config`
-modemid_1=${buildid:$offset_1:$length}
-modemid_2=${buildid:$offset_2:$length}
-modemid_3=${buildid:$offset_3:$length}
-if ([ "$modemid_1" = "$is_strider" ] && [ "$modemid_2" -gt "$is_qmi_enabled" ]) ||
-       ([ "$modemid_1" = "$is_unicorn" ] && [ "$modemid_3" = "$is_unicorn_strider" ]); then
-    setprop rild.libpath "/system/lib/libril-qc-qmi-1.so"
-    if [ "$dsds" = "dsds" ]; then
-        setprop ro.multi.rild true
-        stop ril-daemon
-        start ril-daemon
-        start ril-daemon1
-    else
-        stop ril-daemon
-        start ril-daemon
-    fi
-fi
+case $mode in
+  "normal")
+    case $TRANSPORT in
+    "smd")
+        logi "inserting the radio transport module"
+        insmod /system/lib/modules/radio-iris-transport.ko
+     ;;
+     *)
+        logi "default transport case "
+     ;;
+    esac
+      /system/bin/fm_qsoc_patches $version 0
+     ;;
+  "wa_enable")
+   /system/bin/fm_qsoc_patches $version 1
+     ;;
+  "wa_disable")
+   /system/bin/fm_qsoc_patches $version 2
+     ;;
+  "config_dac")
+   /system/bin/fm_qsoc_patches $version 3 $isAnalog
+     ;;
+   *)
+    logi "Shell: Default case"
+    /system/bin/fm_qsoc_patches $version 0
+    ;;
+esac
+
+exit_code_fm_qsoc_patches=$?
+
+case $exit_code_fm_qsoc_patches in
+   0)
+	logi "FM QSoC calibration and firmware download succeeded"
+   ;;
+  *)
+	failed "FM QSoC firmware download and/or calibration failed" $exit_code_fm_qsoc_patches
+   ;;
+esac
+
+setprop hw.fm.init 1
+
+exit 0
